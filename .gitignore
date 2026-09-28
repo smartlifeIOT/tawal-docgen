@@ -11,3 +11,5 @@ storage/
 deploy.config
 DEPLOYMENT.md
 QUICKSTART.md
+# IDEs and editors
+.idea/
