@@ -556,8 +556,3 @@ frontend/
   src/lib/    api.ts · types.ts
 ```
 
-## Next steps worth considering
-
-- **Auth** — there is none yet. Add `@nestjs/jwt` with a `Roles` guard before this leaves your network.
-- **Multi-site POs** — the schema supports one site per package. A `PoBatch` grouping several packages onto one WO/PAC form is a natural follow-on.
-- **OCR fallback** — for GCLs that arrive as flat scans, `tesseract.js` behind a feature flag.
