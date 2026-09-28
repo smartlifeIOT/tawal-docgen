@@ -1,4 +1,4 @@
-# Optional: deploy automatically on push to master.
+# Deploy on push to master.
 #
 # Requires four repository secrets (Settings -> Secrets and variables -> Actions):
 #   SSH_HOST        e.g. 147.79.114.76
@@ -11,6 +11,21 @@
 #   ssh-keygen -t ed25519 -f ~/.ssh/gh-deploy -N ""
 #   cat ~/.ssh/gh-deploy.pub >> ~/.ssh/authorized_keys
 #   cat ~/.ssh/gh-deploy          # <- this goes into SSH_PRIVATE_KEY
+#
+# Two prerequisites on the server, both easy to miss:
+#
+#   1. /var/www/tawal-docgen must be a git clone of this repo. If it is only
+#      the directory docker-compose runs from, `git fetch` fails on the first
+#      command. Check with:
+#        git -C /var/www/tawal-docgen rev-parse --is-inside-work-tree
+#
+#   2. That clone needs its own credentials to reach GitHub. The key above
+#      lets Actions into the server; it does not let the server into GitHub.
+#      Check with:
+#        ssh <user>@<host> 'cd /var/www/tawal-docgen && git fetch origin master'
+#
+# .env is gitignored, so a fresh clone will not have it and the backend will
+# refuse to start. Copy it across before the first run.
 
 name: Deploy
 
@@ -40,10 +55,16 @@ jobs:
           command_timeout: 25m
           script: |
             set -euo pipefail
-            SRC="$HOME/tawal-docgen-src"
-            DEPLOY="$HOME/tawal-docgen"
 
-            cd "$SRC"
+            APP="/var/www/tawal-docgen"
+            # The published port from docker-compose.prod.yml. Hardcoded rather
+            # than read from the environment: this shell does not inherit the
+            # compose variables, so a default here silently checks the wrong
+            # port and every deploy "fails" after a successful build.
+            PORT=8095
+
+            cd "$APP"
+
             git fetch origin master --prune
             git reset --hard origin/master
             SHA=$(git rev-parse --short HEAD)
@@ -59,20 +80,22 @@ jobs:
             docker build -t tawal-docgen-backend:latest  -t "tawal-docgen-backend:$SHA"  ./backend
             docker build -t tawal-docgen-frontend:latest -t "tawal-docgen-frontend:$SHA" ./frontend
 
-            cp "$SRC/docker-compose.prod.yml" "$DEPLOY/docker-compose.yml"
-            cd "$DEPLOY"
+            cp docker-compose.prod.yml docker-compose.yml
             docker compose up -d --remove-orphans
 
+            # Up to 90s. First boot after a schema change is the slow case:
+            # the backend applies it before it starts listening.
             for i in $(seq 1 30); do
-              code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${HOST_HTTP_PORT:-8090}/api/health" || true)
+              code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/api/health" || true)
               if [ "$code" = "200" ]; then
-                echo "healthy"
+                echo "healthy — $SHA is live"
                 docker image prune -f || true
                 exit 0
               fi
               sleep 3
             done
 
-            echo "health check failed after 90s"
+            echo "health check failed after 90s — the previous version is still serving"
+            echo "roll back with: docker tag tawal-docgen-backend:previous tawal-docgen-backend:latest && docker compose up -d"
             docker compose logs --tail=50 backend
             exit 1
