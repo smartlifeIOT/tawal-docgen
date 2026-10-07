@@ -84,9 +84,44 @@ export default function CategoriesPage({ tab = 'projects' }: { tab?: 'projects' 
       {isProjects ? (
         <>
           <Alert kind="info">
-            Project categories mirror the tracker's own — one appears here as soon as a project
-            uses it. Pair each with the MOP categories its projects should produce.
+            Categories the tracker uses appear here automatically. You can add your own for work
+            the tracker doesn't cover — a MOP can then be raised against it without a project.
+            Pair each with the MOP categories it should produce.
           </Alert>
+
+          {canCreate && (
+            <Card>
+              <CardHead title="Add a project category" icon={<Plus size={15} />} />
+              <div className="flex flex-wrap items-end gap-3 px-4 py-5 sm:px-5">
+                <Field label="Name" className="min-w-[220px] flex-1">
+                  <Input
+                    placeholder="Maintenance"
+                    value={newProject.name}
+                    onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                  />
+                </Field>
+                <Button
+                  variant="gradient"
+                  disabled={!newProject.name.trim()}
+                  loading={busy === 'new-project'}
+                  onClick={() =>
+                    act(async () => {
+                      await api.send('/categories/projects', 'POST', {
+                        ...newProject,
+                        name: newProject.name.trim(),
+                      });
+                      setNewProject({ name: '', description: '', colour: '#01C2F3' });
+                    }, 'new-project')
+                  }
+                >
+                  Add category
+                </Button>
+              </div>
+              <p className="border-t border-line/60 px-5 py-3 text-[11px] text-fg-subtle">
+                A custom category produces nothing until it is paired with a MOP category below.
+              </p>
+            </Card>
+          )}
 
           {projectCats.length === 0 && <Empty icon={<FolderTree size={22} />}>No project categories yet.</Empty>}
 
@@ -102,18 +137,36 @@ export default function CategoriesPage({ tab = 'projects' }: { tab?: 'projects' 
                 }
                 hint={c.description ?? `${c._count?.documents ?? 0} MOP document(s)`}
                 actions={
-                  canEdit && (
+                  (canEdit || canDelete) && (
                     <div className="flex items-center gap-3">
-                      <Checkbox
-                        checked={c.isActive}
-                        onChange={(v) =>
-                          act(() => api.send(`/categories/projects/${c.id}`, 'PATCH', { isActive: v }), c.id)
-                        }
-                        label={<span className="text-xs">Visible</span>}
-                      />
-                      <Button variant="outline" size="sm" onClick={() => setLinkFor(linkFor === c.id ? null : c.id)}>
-                        <Link2 size={13} /> Pair MOP
-                      </Button>
+                      {canEdit && (
+                        <Checkbox
+                          checked={c.isActive}
+                          onChange={(v) =>
+                            act(() => api.send(`/categories/projects/${c.id}`, 'PATCH', { isActive: v }), c.id)
+                          }
+                          label={<span className="text-xs">Visible</span>}
+                        />
+                      )}
+                      {canEdit && (
+                        <Button variant="outline" size="sm" onClick={() => setLinkFor(linkFor === c.id ? null : c.id)}>
+                          <Link2 size={13} /> Pair MOP
+                        </Button>
+                      )}
+                      {/* Only a custom category can be deleted — a mirrored one
+                          would simply reappear on the next sync. */}
+                      {canDelete && !c.lastSeenAt && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-rose-500"
+                          onClick={() =>
+                            act(() => api.send(`/categories/projects/${c.id}`, 'DELETE'), c.id)
+                          }
+                        >
+                          <Trash2 size={13} />
+                        </Button>
+                      )}
                     </div>
                   )
                 }

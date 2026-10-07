@@ -3,8 +3,14 @@ import { IsEnum, IsInt, IsOptional, IsPositive, IsString, MinLength } from 'clas
 import { SiteImpact } from '@prisma/client';
 
 export class CreateMopDto {
-  /** Site ID of the tracker project this MOP is for. */
-  @IsString() externalSiteId!: string;
+  /**
+   * The tracker project this MOP is for. Optional: without one, the site or
+   * project name is typed by hand and `projectCategoryId` decides the format.
+   */
+  @IsOptional() @IsString() externalSiteId?: string;
+
+  /** Required when no project is selected — it is what resolves the format. */
+  @IsOptional() @IsString() projectCategoryId?: string;
   @IsString() mopCategoryId!: string;
   @IsString() @MinLength(2, { message: 'Site ID is required' }) siteId!: string;
   @IsOptional() @IsString() tcnSummary?: string;
@@ -24,10 +30,17 @@ export class QueryMopDto {
 }
 
 export class BulkMopDto {
-  /** Site ID of the tracker project this MOP is for. */
-  @IsString() externalSiteId!: string;
+  /**
+   * The tracker project this MOP is for. Optional: without one, the site or
+   * project name is typed by hand and `projectCategoryId` decides the format.
+   */
+  @IsOptional() @IsString() externalSiteId?: string;
+
+  /** Required when no project is selected — it is what resolves the format. */
+  @IsOptional() @IsString() projectCategoryId?: string;
   @IsString() mopCategoryId!: string;
   /** Used for any row that leaves the column blank. */
   @IsOptional() @IsString() requesterName?: string;
   @IsOptional() @IsString() pmName?: string;
 }
+

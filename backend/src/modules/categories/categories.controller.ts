@@ -39,6 +39,18 @@ export class CategoriesController {
 
   // --- changes are Admin-only ---
 
+  @Post('projects')
+  @RequirePermission('projectCategories', 'create')
+  createProjectCategory(@Body() dto: UpsertProjectCategoryDto) {
+    return this.categories.createProjectCategory(dto);
+  }
+
+  @Delete('projects/:id')
+  @RequirePermission('projectCategories', 'delete')
+  removeProjectCategory(@Param('id') id: string) {
+    return this.categories.removeProjectCategory(id);
+  }
+
   @Patch('projects/:id')
   @RequirePermission('projectCategories', 'edit')
   updateProjectCategory(@Param('id') id: string, @Body() dto: Partial<UpsertProjectCategoryDto>) {

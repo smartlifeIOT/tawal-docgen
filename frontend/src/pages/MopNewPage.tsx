@@ -13,7 +13,8 @@ import FileDrop from '../components/FileDrop';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type {
-  CategoryTemplate, DirectoryUser, MopBatch, MopDocument, Project, ProjectsResult, SiteImpact,
+  CategoryTemplate, DirectoryUser, MopBatch, MopDocument, Project, ProjectCategory,
+  ProjectsResult, SiteImpact,
 } from '../lib/types';
 
 type Mode = 'single' | 'bulk';
@@ -24,6 +25,7 @@ export default function MopNewPage() {
   const { user } = useAuth();
 
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [categories, setCategories] = useState<ProjectCategory[]>([]);
   const [people, setPeople] = useState<DirectoryUser[]>([]);
   const [mode, setMode] = useState<Mode>('single');
   const [busy, setBusy] = useState<string | null>(null);
@@ -34,6 +36,9 @@ export default function MopNewPage() {
 
   const [form, setForm] = useState({
     externalSiteId: params.get('project') ?? '',
+    // Only used when the typed project is not one from the tracker — it is
+    // what resolves the MOP format in that case.
+    projectCategoryId: '',
     mopCategoryId: '',
     siteId: '',
     tcnSummary: '',
@@ -49,6 +54,13 @@ export default function MopNewPage() {
       .get<ProjectsResult>('/projects')
       .then((r) => setProjects(r.items))
       .catch((e) => setError((e as Error).message));
+
+    // Needed when the project is typed rather than picked: the category is
+    // then chosen directly, because there is no tracker record to read it from.
+    api
+      .get<ProjectCategory[]>('/categories/projects')
+      .then(setCategories)
+      .catch(() => setCategories([]));
     api.get<DirectoryUser[]>('/directory/users').then(setPeople).catch(() => setPeople([]));
   }, []);
 
@@ -58,16 +70,44 @@ export default function MopNewPage() {
   );
 
   /** Only the pairings defined for this project's category. */
+  /** Every pairing across all project categories, de-duplicated by MOP type. */
+  const allTemplates: CategoryTemplate[] = useMemo(() => {
+    const seen = new Map<string, CategoryTemplate>();
+    for (const c of categories) {
+      for (const t of c.templates ?? []) {
+        if (!seen.has(t.mopCategoryId)) seen.set(t.mopCategoryId, t);
+      }
+    }
+    return [...seen.values()];
+  }, [categories]);
+
+  const chosenCategory = useMemo(
+    () => categories.find((c) => c.id === form.projectCategoryId) ?? null,
+    [categories, form.projectCategoryId],
+  );
+
+  /**
+   * The pairings on offer. A tracker project supplies its own category; a
+   * typed name has none, so the category picked by hand supplies it instead.
+   * The format always comes from a pairing — it is never guessed.
+   */
+  /**
+   * The MOP types on offer. A project narrows them to its own category's
+   * pairings, as does a category chosen by hand. With neither, every pairing
+   * is offered and the server resolves the form — it can do so whenever the
+   * chosen type belongs to exactly one project category.
+   */
   const available: CategoryTemplate[] = useMemo(
-    () => project?.projectCategory?.templates ?? [],
-    [project],
+    () =>
+      (project ? project.projectCategory?.templates : chosenCategory?.templates) ??
+      (chosenCategory ? [] : allTemplates),
+    [project, chosenCategory, allTemplates],
   );
 
   const link = available.find((t) => t.mopCategoryId === form.mopCategoryId) ?? null;
 
   // Changing project resets the category to the first one it actually offers.
   useEffect(() => {
-    if (!project) return;
     const first = available[0];
     setForm((f) => ({
       ...f,
@@ -77,7 +117,7 @@ export default function MopNewPage() {
       tcnSummary: first?.defaultTcnSummary ?? f.tcnSummary,
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.siteId]);
+  }, [project?.siteId, form.projectCategoryId]);
 
   function chooseCategory(id: string) {
     const next = available.find((t) => t.mopCategoryId === id);
@@ -110,7 +150,12 @@ export default function MopNewPage() {
     setNotice(null);
     try {
       const result = await api.upload<MopBatch>('/mop/bulk', file, {
-        externalSiteId: form.externalSiteId,
+        ...(form.externalSiteId.trim()
+          ? { externalSiteId: form.externalSiteId.trim() }
+          : {}),
+        ...(!project && form.projectCategoryId
+          ? { projectCategoryId: form.projectCategoryId }
+          : {}),
         mopCategoryId: form.mopCategoryId,
         requesterName: form.requesterName,
         pmName: form.pmName,
@@ -134,7 +179,12 @@ export default function MopNewPage() {
     );
   }
 
-  const ready = form.externalSiteId && form.mopCategoryId;
+  // The project itself is optional; a category is not — one of the two routes
+  // has to supply it.
+  const hasCategory = Boolean(project || form.projectCategoryId);
+  // The MOP type is what must be chosen; the project and its category are both
+  // optional ways of narrowing it.
+  const ready = Boolean(form.mopCategoryId);
   const canSubmit = ready && form.siteId.trim() && form.requesterName.trim() && form.pmName.trim();
 
   return (
@@ -185,35 +235,82 @@ export default function MopNewPage() {
       <Card>
         <CardHead title="1 · Project and category" icon={<span className="text-xs font-bold">1</span>} />
         <div className="grid gap-4 px-4 py-5 sm:px-5 sm:grid-cols-2">
-          <Field label="Project" hint="From the Tawal tracker">
-            <Select
+          {/*
+            Pick from the tracker or type a name — the same datalist pattern as
+            the requester field below. Typing a name the tracker does not know
+            is deliberate: a MOP is often raised before the project exists.
+          */}
+          <Field
+            label="Project"
+            hint={
+              project
+                ? `From the tracker · ${project.projectCategory?.name ?? 'no category'}`
+                : form.externalSiteId.trim()
+                  ? 'Not a tracker project — pick a category below'
+                  : 'Pick a project, or type any name'
+            }
+          >
+            <Input
+              list="docgen-projects"
               value={form.externalSiteId}
-              onChange={(e) => set('externalSiteId', e.target.value)}
-            >
-              <option value="">Select a project…</option>
+              placeholder="ZMS009, or a name of your own"
+              onChange={(e) => {
+                set('externalSiteId', e.target.value);
+                // A tracker project brings its own category, so the manual one
+                // would be ignored — clear it rather than leave it misleading.
+                if (projects.some((p) => p.siteId === e.target.value)) {
+                  set('projectCategoryId', '');
+                }
+              }}
+            />
+            <datalist id="docgen-projects">
               {projects.map((p) => (
                 <option key={p.siteId} value={p.siteId}>
-                  {p.siteId} — {p.title}
+                  {p.title}
                   {p.projectCategory ? ` (${p.projectCategory.name})` : ''}
                 </option>
               ))}
-            </Select>
+            </datalist>
           </Field>
+
+          {/* Only when the project is not one the tracker knows. */}
+          {!project && (
+            <Field
+              label="Project category"
+              hint="Optional — narrows the MOP formats below"
+            >
+              <Select
+                value={form.projectCategoryId}
+                onChange={(e) => set('projectCategoryId', e.target.value)}
+              >
+                <option value="">Select a category…</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
 
           <Field
             label="MOP category"
             hint={
-              project && available.length === 0
-                ? `${project.projectCategory?.name} has no MOP categories configured yet.`
-                : undefined
+              hasCategory && available.length === 0
+                ? `${project?.projectCategory?.name ?? chosenCategory?.name} has no MOP formats paired yet.`
+                : !hasCategory
+                  ? 'Narrow these by choosing a project category'
+                  : undefined
             }
           >
             <Select
               value={form.mopCategoryId}
-              disabled={!project || available.length === 0}
+              disabled={available.length === 0}
               onChange={(e) => chooseCategory(e.target.value)}
             >
-              <option value="">{project ? 'Select…' : 'Choose a project first'}</option>
+              <option value="">
+                {available.length === 0 ? 'No MOP formats paired yet' : 'Select…'}
+              </option>
               {available.map((t) => (
                 <option key={t.mopCategoryId} value={t.mopCategoryId}>
                   {t.mopCategory?.name}

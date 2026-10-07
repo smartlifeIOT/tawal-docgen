@@ -111,11 +111,71 @@ export class CategoriesService implements OnModuleInit {
     });
   }
 
-  /** Only presentation is editable — the name comes from the tracker. */
+  /**
+   * Creates a category the tracker does not have.
+   *
+   * Categories normally mirror the tracker, but MOPs can be raised for work
+   * outside it, and those need a category of their own to pair MOP formats
+   * against. A custom one has no `lastSeenAt`, which is how it stays
+   * distinguishable from a mirrored one.
+   */
+  async createProjectCategory(dto: UpsertProjectCategoryDto) {
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('A category name is required.');
+
+    const existing = await this.prisma.projectCategory.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
+    });
+    if (existing) {
+      throw new BadRequestException(`A project category called "${name}" already exists.`);
+    }
+
+    const count = await this.prisma.projectCategory.count();
+    return this.prisma.projectCategory.create({
+      data: {
+        ...dto,
+        name,
+        slug: slugify(name),
+        colour: dto.colour ?? PALETTE[count % PALETTE.length],
+        sortOrder: dto.sortOrder ?? count,
+      },
+    });
+  }
+
+  /**
+   * Removes a category. Refused when documents were generated under it — those
+   * records would lose what form they were built from.
+   */
+  async removeProjectCategory(id: string) {
+    const category = await this.getProjectCategory(id);
+
+    const documents = await this.prisma.mopDocument.count({
+      where: { projectCategoryId: id },
+    });
+    if (documents) {
+      throw new BadRequestException(
+        `"${category.name}" has ${documents} document(s) generated under it, so it cannot be deleted. ` +
+          `Hide it instead by unticking Visible.`,
+      );
+    }
+
+    await this.prisma.categoryTemplate.deleteMany({ where: { projectCategoryId: id } });
+    return this.prisma.projectCategory.delete({ where: { id } });
+  }
+
+  /** Only presentation is editable on a mirrored category. */
   async updateProjectCategory(id: string, dto: Partial<UpsertProjectCategoryDto>) {
     await this.getProjectCategory(id);
+    // The name is editable on a custom category; on a mirrored one the tracker
+    // owns it and a sync would overwrite the change anyway.
+    const current = await this.prisma.projectCategory.findUnique({ where: { id } });
     const { slug, name, ...rest } = dto;
-    return this.prisma.projectCategory.update({ where: { id }, data: rest });
+    const renameable = current && !current.lastSeenAt && name?.trim();
+
+    return this.prisma.projectCategory.update({
+      where: { id },
+      data: renameable ? { ...rest, name: name.trim(), slug: slugify(name) } : rest,
+    });
   }
 
   /** Resolves a tracker category string to its local row. */

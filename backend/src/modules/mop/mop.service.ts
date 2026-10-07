@@ -94,19 +94,73 @@ export class MopService {
    * → its `category` string → the local project category → the pairing with the
    * chosen MOP category → the Word template.
    */
-  private async resolve(siteId: string, mopCategoryId: string) {
-    const project = await this.externalProjects.findBySiteId(siteId);
-    if (!project) {
-      throw new NotFoundException(`Project "${siteId}" was not found in the tracker.`);
+  /**
+   * Resolves the Word template.
+   *
+   * With a project the chain is: site ID -> tracker project -> its `category`
+   * string -> the local project category -> the pairing with the chosen MOP
+   * category -> the template.
+   *
+   * Without one — a survey raised before the project exists, or an ad-hoc
+   * request — there is no category to derive, so the caller names it directly
+   * and the rest of the chain is unchanged. The format is never guessed.
+   */
+  private async resolve(
+    siteId: string | null | undefined,
+    mopCategoryId: string,
+    projectCategoryId?: string | null,
+  ) {
+    /*
+     * A site ID that the tracker knows gives us its category for free. One it
+     * does not know is simply a name typed by hand — a MOP raised before the
+     * project exists, or for work outside the tracker — so it is kept as the
+     * site reference and the category comes from the caller instead. Rejecting
+     * it would make the free-text field pointless.
+     */
+    const project = siteId ? await this.externalProjects.findBySiteId(siteId) : null;
+    if (siteId && !project) {
+      this.logger.log(`"${siteId}" is not a tracker project — treating it as a typed name.`);
     }
 
-    const category = await this.prisma.projectCategory.findFirst({
-      where: { name: { equals: (project.category ?? '').trim(), mode: 'insensitive' } },
-    });
+    let category = project
+      ? await this.prisma.projectCategory.findFirst({
+          where: { name: { equals: (project.category ?? '').trim(), mode: 'insensitive' } },
+        })
+      : projectCategoryId
+        ? await this.prisma.projectCategory.findUnique({ where: { id: projectCategoryId } })
+        : null;
+
+    /*
+     * Neither a project nor a category given. The MOP category still has to
+     * resolve to one Word format, so look at what it is paired with: a single
+     * pairing is unambiguous and is used. Several means the same MOP type is
+     * produced on different forms depending on the kind of project, and only
+     * the caller knows which — so ask rather than pick one.
+     */
+    if (!category && !project) {
+      const pairings = await this.prisma.categoryTemplate.findMany({
+        where: { mopCategoryId },
+        include: { projectCategory: true },
+      });
+
+      if (pairings.length === 1) {
+        category = pairings[0].projectCategory;
+      } else if (pairings.length > 1) {
+        const names = pairings.map((p: any) => p.projectCategory?.name).filter(Boolean);
+        throw new BadRequestException(
+          `This MOP type is paired with more than one project category ` +
+            `(${names.join(', ')}), which use different forms. Choose one.`,
+        );
+      }
+    }
+
     if (!category) {
       throw new BadRequestException(
-        `No project category matches "${project.category ?? 'none'}". ` +
-          `Open Project categories so it can be picked up from the tracker.`,
+        project
+          ? `No project category matches "${project.category ?? 'none'}". ` +
+            `Open Project categories so it can be picked up from the tracker.`
+          : `This MOP type is not paired with any project category yet, so there ` +
+            `is no form to produce. Pair it under Project categories.`,
       );
     }
 
@@ -128,7 +182,11 @@ export class MopService {
   }
 
   async create(dto: CreateMopDto, userId: string) {
-    const { project, category, link } = await this.resolve(dto.externalSiteId, dto.mopCategoryId);
+    const { project, category, link } = await this.resolve(
+      dto.externalSiteId,
+      dto.mopCategoryId,
+      dto.projectCategoryId,
+    );
 
     const impact = dto.siteImpact ?? SiteImpact.NO;
     const summary =
@@ -136,10 +194,11 @@ export class MopService {
 
     const doc = await this.prisma.mopDocument.create({
       data: {
-        externalProjectId: project.id,
-        externalSiteId: project.siteId,
-        externalProjectTitle: project.title,
-        externalCategory: project.category,
+        externalProjectId: project?.id ?? null,
+        // Without a project this holds the site or project name typed by hand.
+        externalSiteId: project?.siteId ?? dto.externalSiteId ?? null,
+        externalProjectTitle: project?.title ?? dto.externalSiteId ?? null,
+        externalCategory: project?.category ?? category.name,
         projectCategoryId: category.id,
         mopCategoryId: link.mopCategoryId,
         templateKey: link.templateKey,
@@ -295,7 +354,7 @@ export class MopService {
     const notes = wb.addWorksheet('Instructions');
     notes.getColumn(1).width = 100;
     [
-      `Bulk MOP generation — ${project.title} / ${link.mopCategory.name}`,
+      `Bulk MOP generation — ${project?.title ?? 'no project'} / ${link.mopCategory.name}`,
       '',
       'One row per site. Site ID is the only required column.',
       'Blank TCN Summary falls back to this category default:',
@@ -310,7 +369,7 @@ export class MopService {
     });
 
     return {
-      fileName: `MOP_Bulk_Template_${project.siteId}_${link.mopCategory.slug}.xlsx`,
+      fileName: `MOP_Bulk_Template_${project?.siteId ?? 'manual'}_${link.mopCategory.slug}.xlsx`,
       buffer: Buffer.from(await wb.xlsx.writeBuffer()),
     };
   }
@@ -423,10 +482,10 @@ export class MopService {
 
         const doc = await this.prisma.mopDocument.create({
           data: {
-            externalProjectId: project.id,
-            externalSiteId: project.siteId,
-            externalProjectTitle: project.title,
-            externalCategory: project.category,
+            externalProjectId: project?.id ?? null,
+            externalSiteId: project?.siteId ?? siteId ?? null,
+            externalProjectTitle: project?.title ?? siteId ?? null,
+            externalCategory: project?.category ?? category.name,
             projectCategoryId: category.id,
             mopCategoryId: link.mopCategoryId,
             templateKey: link.templateKey,
