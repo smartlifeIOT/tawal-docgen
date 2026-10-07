@@ -558,6 +558,106 @@ export class MopService {
     };
   }
 
+  /**
+   * Every MOP raised for one project, zipped in a single format.
+   *
+   * The list page groups by `externalSiteId`, so that is the key here too, and
+   * an empty one means the group of MOPs raised without a tracker project.
+   * Only the requested format goes in: asking for Word and getting PDFs
+   * alongside them is the thing this avoids.
+   *
+   * The page's category and search filters are honoured, so the archive holds
+   * what the group on screen was showing rather than silently more.
+   */
+  async zipForProject(
+    siteId: string | null | undefined,
+    format: 'pdf' | 'docx',
+    filters: { mopCategoryId?: string; search?: string } = {},
+  ) {
+    const key = siteId?.trim() || null;
+
+    const where: any = { externalSiteId: key };
+    if (filters.mopCategoryId) where.mopCategoryId = filters.mopCategoryId;
+    if (filters.search) {
+      // Same three columns the list page searches, so the counts agree.
+      where.OR = [
+        { siteId: { contains: filters.search, mode: 'insensitive' } },
+        { tcnSummary: { contains: filters.search, mode: 'insensitive' } },
+        { pmName: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const docs = await this.prisma.mopDocument.findMany({
+      where,
+      orderBy: [{ siteId: 'asc' }, { createdAt: 'asc' }],
+      include: { mopCategory: { select: { name: true } } },
+    });
+
+    if (!docs.length) {
+      throw new NotFoundException(
+        key
+          ? `No MOP documents found for "${key}".`
+          : 'No MOP documents without a project were found.',
+      );
+    }
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    const chunks: Buffer[] = [];
+    archive.on('data', (c) => chunks.push(c));
+    const done = new Promise<void>((resolve, reject) => {
+      archive.on('end', () => resolve());
+      archive.on('error', reject);
+    });
+
+    // Two documents in one project can share a file name — same site, same
+    // category, generated twice. Suffix the duplicates so neither is lost.
+    const used = new Set<string>();
+    const missing: string[] = [];
+
+    for (const doc of docs) {
+      const path = format === 'docx' ? doc.docxPath : doc.pdfPath;
+      const name = format === 'docx' ? doc.docxFileName : doc.pdfFileName;
+
+      if (!path || !name || !(await this.storage.exists(path))) {
+        missing.push(`${doc.siteId} — ${doc.mopCategory?.name ?? 'MOP'}`);
+        continue;
+      }
+
+      let entry = name;
+      for (let n = 2; used.has(entry.toLowerCase()); n += 1) {
+        entry = name.replace(/(\.[^.]+)$/, `-${n}$1`);
+      }
+      used.add(entry.toLowerCase());
+      archive.append(await this.storage.read(path), { name: entry });
+    }
+
+    if (!used.size) {
+      throw new NotFoundException(
+        `No ${format === 'docx' ? 'Word' : 'PDF'} files exist for these documents yet — regenerate them.`,
+      );
+    }
+    if (missing.length) {
+      // The archive is still worth having; say what is not in it.
+      archive.append(
+        `These documents had no ${format === 'docx' ? 'Word file' : 'PDF'} and were left out:\n\n` +
+          missing.map((m) => `- ${m}`).join('\n') +
+          '\n\nRegenerate them from the MOP documents page to include them.\n',
+        { name: 'MISSING.txt' },
+      );
+    }
+
+    await archive.finalize();
+    await done;
+
+    const stem = (key ?? 'No-project').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    return {
+      fileName: `${stem || 'MOPs'}_MOPs_${format.toUpperCase()}.zip`,
+      buffer: Buffer.concat(chunks),
+      included: used.size,
+      skipped: missing.length,
+    };
+  }
+
   async listBatches(limit = 25) {
     return this.prisma.mopBatch.findMany({
       orderBy: { createdAt: 'desc' },

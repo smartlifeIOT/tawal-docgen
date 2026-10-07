@@ -72,6 +72,43 @@ export class MopController {
 
   /* ------------------------------------------------------------ downloads */
 
+  /**
+   * All of one project's MOPs, in one format, as a ZIP.
+   *
+   * Declared before `:id/...` and kept to a literal two-segment path so Nest
+   * cannot mistake it for a document ID. `siteId` is a query parameter because
+   * the group of MOPs raised without a tracker project has an empty one, which
+   * a path parameter cannot carry.
+   */
+  @RequirePermission('mop', 'view')
+  @Get('download/project')
+  async downloadProject(
+    @Query('format') format: string,
+    @Res({ passthrough: true }) res: Response,
+    @Query('siteId') siteId?: string,
+    @Query('mopCategoryId') mopCategoryId?: string,
+    @Query('search') search?: string,
+  ) {
+    const fmt = (format ?? '').toLowerCase();
+    if (fmt !== 'pdf' && fmt !== 'docx') {
+      throw new BadRequestException('Choose a format: "pdf" or "docx".');
+    }
+    const { fileName, buffer, included, skipped } = await this.mop.zipForProject(
+      siteId,
+      fmt as 'pdf' | 'docx',
+      { mopCategoryId, search },
+    );
+    res.set({
+      'Content-Type': MIME.zip,
+      'Content-Disposition': disposition(fileName),
+      // Read by the UI to report what the archive actually holds.
+      'X-Documents-Included': String(included),
+      'X-Documents-Skipped': String(skipped),
+      'Access-Control-Expose-Headers': 'X-Documents-Included, X-Documents-Skipped',
+    });
+    return new StreamableFile(buffer);
+  }
+
   @Get(':id/download/:kind')
   async download(
     @Param('id') id: string,

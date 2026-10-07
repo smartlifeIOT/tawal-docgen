@@ -75,7 +75,14 @@ export const api = {
     const res = await fetch(`${BASE}${path}`, { headers: authHeaders() });
     if (!res.ok) {
       handleUnauthorized(res);
-      throw new Error(`Download failed (${res.status})`);
+      // A failed download still answers with a JSON problem body; show what it
+      // says ("regenerate them") rather than a bare status code.
+      let message = `Download failed (${res.status})`;
+      try {
+        const body = await res.json();
+        message = Array.isArray(body.message) ? body.message.join(', ') : body.message || message;
+      } catch { /* non-JSON error body */ }
+      throw new Error(message);
     }
     const disposition = res.headers.get('Content-Disposition') ?? '';
     const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
@@ -91,6 +98,17 @@ export const api = {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+
+    // Bulk archives report what they hold; single-file downloads omit these.
+    const count = (header: string) => {
+      const v = res.headers.get(header);
+      return v === null ? undefined : Number(v);
+    };
+    return {
+      fileName: name,
+      included: count('X-Documents-Included'),
+      skipped: count('X-Documents-Skipped'),
+    };
   },
 
   /** Opens a PDF in a new tab, again via blob so the token isn't in the URL. */
