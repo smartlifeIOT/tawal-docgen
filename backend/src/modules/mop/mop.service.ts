@@ -568,15 +568,20 @@ export class MopService {
    *
    * The page's category and search filters are honoured, so the archive holds
    * what the group on screen was showing rather than silently more.
+   *
+   * `ids` narrows it further to a hand-picked set of rows. It stays scoped to
+   * the project as well, so an ID from another project cannot be pulled out
+   * through this route.
    */
   async zipForProject(
     siteId: string | null | undefined,
     format: 'pdf' | 'docx',
-    filters: { mopCategoryId?: string; search?: string } = {},
+    filters: { mopCategoryId?: string; search?: string; ids?: string[] } = {},
   ) {
     const key = siteId?.trim() || null;
 
     const where: any = { externalSiteId: key };
+    if (filters.ids?.length) where.id = { in: filters.ids };
     if (filters.mopCategoryId) where.mopCategoryId = filters.mopCategoryId;
     if (filters.search) {
       // Same three columns the list page searches, so the counts agree.
@@ -595,9 +600,11 @@ export class MopService {
 
     if (!docs.length) {
       throw new NotFoundException(
-        key
-          ? `No MOP documents found for "${key}".`
-          : 'No MOP documents without a project were found.',
+        filters.ids?.length
+          ? 'None of the selected documents could be found — reload the page and try again.'
+          : key
+            ? `No MOP documents found for "${key}".`
+            : 'No MOP documents without a project were found.',
       );
     }
 
@@ -649,9 +656,20 @@ export class MopService {
     await archive.finalize();
     await done;
 
-    const stem = (key ?? 'No-project').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    const safe = (v: string) => v.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    const stem = safe(key ?? 'No-project') || 'MOPs';
+    // A hand-picked set is named after the site when it is all one site, and
+    // marked "Selected" otherwise, so partial downloads are told apart in a
+    // Downloads folder.
+    const sites = [...new Set(docs.map((d) => d.siteId))];
+    const scope = !filters.ids?.length
+      ? ''
+      : sites.length === 1
+        ? `_${safe(sites[0])}`
+        : '_Selected';
+
     return {
-      fileName: `${stem || 'MOPs'}_MOPs_${format.toUpperCase()}.zip`,
+      fileName: `${stem}${scope}_MOPs_${format.toUpperCase()}.zip`,
       buffer: Buffer.concat(chunks),
       included: used.size,
       skipped: missing.length,

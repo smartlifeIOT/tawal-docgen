@@ -37,21 +37,34 @@ export function Checkbox({
   checked,
   onChange,
   label,
+  /** Some but not all of the rows this box covers are selected. */
+  indeterminate = false,
+  title,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
-  label: ReactNode;
+  /** Omit for a bare box, e.g. in a table cell. */
+  label?: ReactNode;
+  indeterminate?: boolean;
+  title?: string;
 }) {
+  const filled = checked || indeterminate;
   return (
-    <label className="flex cursor-pointer items-center gap-2.5 text-sm text-fg-muted">
+    <label
+      title={title}
+      className={cn(
+        'flex cursor-pointer items-center text-sm text-fg-muted',
+        label ? 'gap-2.5' : 'gap-0',
+      )}
+    >
       <span
         onClick={(e) => {
           e.preventDefault();
           onChange(!checked);
         }}
         className={cn(
-          'grid h-[18px] w-[18px] place-items-center rounded-md border transition-all',
-          checked ? 'border-transparent bg-brand-gradient' : 'border-line bg-card hover:border-fg-subtle/50',
+          'grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md border transition-all',
+          filled ? 'border-transparent bg-brand-gradient' : 'border-line bg-card hover:border-fg-subtle/50',
         )}
       >
         {checked && (
@@ -59,8 +72,17 @@ export function Checkbox({
             <path d="M2 7.5 5.5 11 12 3.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )}
+        {!checked && indeterminate && <span className="h-0.5 w-2.5 rounded-full bg-white" />}
       </span>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="sr-only" />
+      <input
+        type="checkbox"
+        checked={checked}
+        ref={(el) => {
+          if (el) el.indeterminate = indeterminate && !checked;
+        }}
+        onChange={(e) => onChange(e.target.checked)}
+        className="sr-only"
+      />
       {label}
     </label>
   );

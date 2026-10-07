@@ -88,15 +88,23 @@ export class MopController {
     @Query('siteId') siteId?: string,
     @Query('mopCategoryId') mopCategoryId?: string,
     @Query('search') search?: string,
+    @Query('ids') ids?: string,
   ) {
     const fmt = (format ?? '').toLowerCase();
     if (fmt !== 'pdf' && fmt !== 'docx') {
       throw new BadRequestException('Choose a format: "pdf" or "docx".');
     }
+    // Hand-picked rows arrive as one comma-separated list: a repeated query
+    // parameter would hit the URL length limit on a large project.
+    const picked = (ids ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     const { fileName, buffer, included, skipped } = await this.mop.zipForProject(
       siteId,
       fmt as 'pdf' | 'docx',
-      { mopCategoryId, search },
+      { mopCategoryId, search, ids: picked },
     );
     res.set({
       'Content-Type': MIME.zip,

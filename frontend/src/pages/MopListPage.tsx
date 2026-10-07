@@ -5,7 +5,7 @@ import { Alert, Empty, Spinner } from '../components/ui/Feedback';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Input, Select } from '../components/ui/Field';
+import { Checkbox, Input, Select } from '../components/ui/Field';
 import FormatDialog, { type DocFormat } from '../components/ui/FormatDialog';
 import { api, shortDate } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -24,8 +24,31 @@ export default function MopListPage() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   /** The project group whose download format is being chosen, if any. */
-  const [zipFor, setZipFor] = useState<{ key: string; label: string; count: number } | null>(null);
+  const [zipFor, setZipFor] = useState<{
+    key: string;
+    label: string;
+    count: number;
+    /** Empty means the whole group; otherwise the hand-picked document IDs. */
+    ids: string[];
+  } | null>(null);
   const [zipping, setZipping] = useState(false);
+
+  /** Hand-picked rows, by document ID, across every group. */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const toggleMany = (ids: string[], on: boolean) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) (on ? next.add(id) : next.delete(id));
+      return next;
+    });
 
   const projectId = params.get('project') ?? '';
   const mopCategoryId = params.get('category') ?? '';
@@ -54,6 +77,16 @@ export default function MopListPage() {
       .catch(() => setProjects([]));
     api.get<MopCategory[]>('/categories/mops').then(setCategories).catch(() => setCategories([]));
   }, []);
+
+  // A row that filtering took off the page should not stay silently selected.
+  useEffect(() => {
+    if (!docs) return;
+    const visible = new Set(docs.map((d) => d.id));
+    setPicked((prev) => {
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [docs]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, { title: string; siteId: string; colour: string; items: MopDocument[] }>();
@@ -84,6 +117,9 @@ export default function MopListPage() {
       if (zipFor.key !== 'unknown') q.set('siteId', zipFor.key);
       if (mopCategoryId) q.set('mopCategoryId', mopCategoryId);
       if (search) q.set('search', search);
+      // Only for a partial pick: whole-group downloads keep the URL short.
+      if (zipFor.ids.length) q.set('ids', zipFor.ids.join(','));
+
       const r = await api.download(`/mop/download/project?${q}`, `${zipFor.key}_MOPs.zip`);
       setZipFor(null);
       setNotice(
@@ -176,11 +212,24 @@ export default function MopListPage() {
 
       {grouped.map(([key, group]) => {
         const isCollapsed = collapsed[key];
+        const ids = group.items.map((d) => d.id);
+        const chosen = ids.filter((id) => picked.has(id));
+        const allChosen = chosen.length === ids.length;
+        // A full selection is the same request as "download all", so send no
+        // ID list for it — that keeps the URL short on a large project.
+        const zipIds = chosen.length && !allChosen ? chosen : [];
         return (
           <Card key={key}>
-            {/* A row, not a single button: the download control sits beside the
-                collapse toggle and a button cannot nest inside a button. */}
+            {/* A row, not a single button: the select-all box and download
+                control sit beside the collapse toggle, and neither a checkbox
+                nor a button can nest inside a button. */}
             <div className="flex items-center gap-3 px-5 py-4">
+              <Checkbox
+                checked={allChosen && ids.length > 0}
+                indeterminate={chosen.length > 0 && !allChosen}
+                onChange={(on) => toggleMany(ids, on)}
+                title={allChosen ? 'Clear selection' : 'Select every site in this project'}
+              />
               <button
                 onClick={() => setCollapsed((c) => ({ ...c, [key]: !c[key] }))}
                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
@@ -204,27 +253,36 @@ export default function MopListPage() {
               </button>
 
               <Button
-                variant="outline"
+                variant={chosen.length ? 'gradient' : 'outline'}
                 size="sm"
                 className="shrink-0"
-                title={`Download all ${group.items.length} documents as a ZIP`}
+                title={
+                  chosen.length && !allChosen
+                    ? `Download the ${chosen.length} selected as a ZIP`
+                    : `Download all ${group.items.length} documents as a ZIP`
+                }
                 onClick={() =>
                   setZipFor({
                     key,
                     label: key === 'unknown' ? 'No project' : group.siteId,
-                    count: group.items.length,
+                    count: chosen.length || group.items.length,
+                    ids: zipIds,
                   })
                 }
               >
-                <Download size={13} /> Download all
+                <Download size={13} />
+                {chosen.length && !allChosen ? `Download ${chosen.length}` : 'Download all'}
               </Button>
             </div>
 
             {!isCollapsed && (
               <div className="overflow-x-auto border-t border-line/60">
-                <table className="w-full min-w-[720px]">
+                <table className="w-full min-w-[760px]">
                   <thead>
                     <tr>
+                      {/* Select-all lives in the group header, where it works
+                          whether this group is open or collapsed. */}
+                      <th className="th w-10" aria-label="Select" />
                       <th className="th">Site ID</th>
                       <th className="th">Category</th>
                       <th className="th">TCN Summary</th>
@@ -237,7 +295,17 @@ export default function MopListPage() {
                   </thead>
                   <tbody>
                     {group.items.map((d) => (
-                      <tr key={d.id} className="row-hover">
+                      <tr
+                        key={d.id}
+                        className={`row-hover ${picked.has(d.id) ? 'bg-cyan-brand/[.06]' : ''}`}
+                      >
+                        <td className="td">
+                          <Checkbox
+                            checked={picked.has(d.id)}
+                            onChange={() => toggle(d.id)}
+                            title={`Select ${d.siteId}`}
+                          />
+                        </td>
                         <td className="td font-mono text-xs font-semibold text-fg">{d.siteId}</td>
                         <td className="td text-xs">{d.mopCategory?.name}</td>
                         <td className="td max-w-xs truncate text-fg-muted" title={d.tcnSummary}>
@@ -286,7 +354,8 @@ export default function MopListPage() {
         title="Download all documents"
         description={
           zipFor
-            ? `${zipFor.count} MOP ${zipFor.count === 1 ? 'document' : 'documents'} for ${zipFor.label}. ` +
+            ? `${zipFor.ids.length ? `${zipFor.count} selected` : zipFor.count} MOP ` +
+              `${zipFor.count === 1 ? 'document' : 'documents'} for ${zipFor.label}. ` +
               'Choose a format — they arrive as a single ZIP.'
             : undefined
         }
