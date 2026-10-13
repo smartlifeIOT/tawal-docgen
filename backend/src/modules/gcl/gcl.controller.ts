@@ -21,7 +21,7 @@ import { GclService } from './gcl.service';
 import { GclBuilderService } from './gcl-builder.service';
 import { GclBulkService } from './gcl-bulk.service';
 import { CreateFromGclDto } from '../packages/packages.dto';
-import { CreateGclDto } from './gcl.dto';
+import { CreateGclDto, CreateGclFromProjectDto } from './gcl.dto';
 
 @ApiTags('GCL')
 @Controller('gcl')
@@ -150,13 +150,28 @@ export class GclController {
     );
   }
 
+  /**
+   * Builds the GCL from the scope sheet attached to the tracker project.
+   *
+   * The screen posts multipart (it carries the signature image), so this needs
+   * a file interceptor like every other upload route here — without one
+   * nothing parses the body and every field, `overwrite` included, arrives
+   * empty.
+   */
   @RequirePermission('gcl', 'create')
   @Post('from-project/:siteId')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'signature', maxCount: 1 }], {
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
   fromProject(
     @Param('siteId') siteId: string,
-    @Body() dto: Omit<CreateGclDto, 'externalSiteId'>,
+    @UploadedFiles() files: { signature?: Express.Multer.File[] },
+    @Body() dto: CreateGclFromProjectDto,
   ) {
-    return this.builder.createFromProject(siteId, dto);
+    return this.gcl.createFromProject(siteId, files?.signature?.[0], dto);
   }
 
   /** Preview what the tracker's attachment contains before committing. */

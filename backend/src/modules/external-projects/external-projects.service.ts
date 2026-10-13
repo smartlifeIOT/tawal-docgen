@@ -5,8 +5,10 @@ import { ConfigService } from '@nestjs/config';
  * Projects come from the Tawal-side tracker, not from this database.
  *
  * Two rules decide which projects are offered where:
- *   Create GCL  →  closeout.patTcn.status  === 'Approved'
- *   Upload GCL  →  closeout.patStatus.status === 'Approved'
+ *   Create GCL  →  closeout.patTcn.status === 'Approved', plus an issued WO
+ *                  and an attached scope sheet (see readyForGcl)
+ *   Upload GCL  →  closeout.patStatus.status === 'Approved', plus the signed
+ *                  GCL attached (see readyForUpload)
  *
  * The upstream service is outside our control, so a failure must never take a
  * screen down: the caller gets `available: false` and the UI shows N/A rather
@@ -14,7 +16,7 @@ import { ConfigService } from '@nestjs/config';
  */
 
 /**
- * create → the project has an approved WO issuance, a WO request still at
+ * create → an approved PAT TCN, an approved WO issuance, a WO request still at
  *          "Requested", and a scope file attached. That combination is what
  *          says "the scope is agreed and here it is" — so the GCL can be built
  *          straight from the attachment.
@@ -94,29 +96,30 @@ function readyForUpload(closeout: any): boolean {
   );
 }
 
-function readyForGcl(mapping: any): boolean {
-  const issuance = String(mapping?.woIssuance?.status ?? '').toLowerCase();
-  const request = String(mapping?.woRequest?.status ?? '').toLowerCase();
-  const file = String(mapping?.woRequest?.fileUrl ?? '').trim();
-  return issuance === 'approved' && request === 'requested' && file.length > 0;
+/**
+ * Ready for a GCL when all four hold:
+ *   - the PAT TCN is approved — GclBuilderService refuses to build without it,
+ *     so a project missing this must not be offered in the first place;
+ *   - the Work Order has been issued and approved;
+ *   - the WO request is still at "Requested";
+ *   - a scope sheet is attached to that request, since the file is what the
+ *     GCL is built from.
+ *
+ * Keep this in step with the guard in GclBuilderService.createFromScope: a
+ * project listed here and then rejected on the next screen is worse than one
+ * that was never offered.
+ */
+function readyForGcl(mapping: any, closeout: any): boolean {
+  return (
+    eq(closeout?.patTcn?.status, 'approved') &&
+    eq(mapping?.woIssuance?.status, 'approved') &&
+    eq(mapping?.woRequest?.status, 'requested') &&
+    Boolean(String(mapping?.woRequest?.fileUrl ?? '').trim())
+  );
 }
 
 const eq = (v: unknown, expected: string) =>
   String(v ?? '').trim().toLowerCase() === expected;
-
-/**
- * Ready for a GCL when the Work Order has been issued, the WO request is still
- * in "Requested", and a scope sheet is attached to that request — the file is
- * what the GCL is built from, so without it there is nothing to generate.
- */
-function isGclReady(row: any): boolean {
-  const wo = row?.mapping ?? {};
-  return (
-    eq(wo?.woIssuance?.status, 'approved') &&
-    eq(wo?.woRequest?.status, 'requested') &&
-    Boolean(String(wo?.woRequest?.fileUrl ?? '').trim())
-  );
-}
 
 /** Anything absent upstream is reported as N/A rather than an empty cell. */
 const NA = 'N/A';
@@ -201,7 +204,7 @@ export class ExternalProjectsService {
       scopeFileName: text(mapping?.woRequest?.fileName),
       gclFileUrl: text(closeout?.patStatus?.fileUrl),
       gclFileName: text(closeout?.patStatus?.fileName),
-      readyForGcl: readyForGcl(mapping),
+      readyForGcl: readyForGcl(mapping, closeout),
       readyForUpload: readyForUpload(closeout),
     };
   }

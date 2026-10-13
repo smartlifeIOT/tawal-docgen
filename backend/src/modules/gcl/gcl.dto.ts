@@ -1,3 +1,4 @@
+import { OmitType } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
 import {
   IsArray,
@@ -80,3 +81,16 @@ export class CreateGclDto {
   @IsOptional() @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean() overwrite?: boolean;
 }
+
+/**
+ * The same body, for the route that takes the project from the URL.
+ *
+ * A real class, not `Omit<CreateGclDto, …>`: a TypeScript type erases to
+ * `Object` at runtime, and ValidationPipe skips anything it sees as `Object` —
+ * so none of the @Transform coercions above would run, and a multipart
+ * `overwrite=true` would stay the string "true" while `siteCodes` stayed raw
+ * JSON. OmitType carries the decorators across.
+ */
+export class CreateGclFromProjectDto extends OmitType(CreateGclDto, [
+  'externalSiteId',
+] as const) {}

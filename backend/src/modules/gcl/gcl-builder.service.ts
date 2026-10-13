@@ -6,6 +6,7 @@ import { StorageService } from '../storage/storage.service';
 import { UplService } from '../upl/upl.service';
 import { ExternalProjectsService } from '../external-projects/external-projects.service';
 import { SiteTagsService } from '../site-tags/site-tags.service';
+import { PackagesService } from '../packages/packages.service';
 import { parseScopeWorkbook, ScopeSite } from './scope.parser';
 import { CreateGclDto, ScopeSiteInputDto } from './gcl.dto';
 import { DocumentsService } from '../documents/documents.service';
@@ -25,6 +26,7 @@ export class GclBuilderService {
     private readonly externalProjects: ExternalProjectsService,
     private readonly documents: DocumentsService,
     private readonly siteTags: SiteTagsService,
+    private readonly packages: PackagesService,
   ) {}
 
   /* --------------------------------------------------------------- preview */
@@ -94,10 +96,18 @@ export class GclBuilderService {
   }
 
   /** Creates the GCL from that same workbook. */
-  async createFromProject(siteId: string, dto: Omit<CreateGclDto, 'externalSiteId'>) {
+  async createFromProject(
+    siteId: string,
+    dto: Omit<CreateGclDto, 'externalSiteId'>,
+    signature?: { fileName: string; filePath: string },
+  ) {
     const { fileName, buffer } = await this.externalProjects.fetchScopeFile(siteId);
     this.logger.log(`Building GCL for ${siteId} from tracker attachment "${fileName}"`);
-    return this.createFromScope(buffer, { ...dto, externalSiteId: siteId } as CreateGclDto);
+    return this.createFromScope(
+      buffer,
+      { ...dto, externalSiteId: siteId } as CreateGclDto,
+      signature,
+    );
   }
 
   async createFromScope(
@@ -212,7 +222,10 @@ export class GclBuilderService {
             `Tick "Replace the existing package" to rebuild it.`,
         );
       }
-      await this.prisma.package.delete({ where: { id: existing.id } });
+      // Through the service, not prisma.delete: the document rows cascade but
+      // the generated files do not, and a replaced package would leave its
+      // GCL, BOQ, Work Order and certificates behind on disk every re-run.
+      await this.packages.remove(existing.id);
     }
 
     const uplVersion = dto.uplVersion ?? 'v1';

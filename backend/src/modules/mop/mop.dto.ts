@@ -43,4 +43,3 @@ export class BulkMopDto {
   @IsOptional() @IsString() requesterName?: string;
   @IsOptional() @IsString() pmName?: string;
 }
-

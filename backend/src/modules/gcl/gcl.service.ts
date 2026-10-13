@@ -5,7 +5,7 @@ import { StorageService } from '../storage/storage.service';
 import { UplService } from '../upl/upl.service';
 import { CreateFromGclDto } from '../packages/packages.dto';
 import { GclBuilderService } from './gcl-builder.service';
-import { CreateGclDto } from './gcl.dto';
+import { CreateGclDto, CreateGclFromProjectDto } from './gcl.dto';
 
 @Injectable()
 export class GclService {
@@ -18,6 +18,32 @@ export class GclService {
     private readonly builder: GclBuilderService,
   ) {}
 
+  /** Stores the uploaded signature image, if one came with the request. */
+  private async storeSignature(signature?: Express.Multer.File) {
+    if (!signature) return undefined;
+    if (!/\.(png|jpe?g)$/i.test(signature.originalname)) {
+      throw new BadRequestException('The signature must be a PNG or JPEG image.');
+    }
+    const stored = await this.storage.saveUpload(
+      signature.buffer,
+      `sig-${signature.originalname}`,
+    );
+    return { fileName: signature.originalname, filePath: stored.filePath };
+  }
+
+  /**
+   * Same as createFromScope, but the scope sheet comes from the tracker rather
+   * than from an upload. The signature still arrives with the request.
+   */
+  async createFromProject(
+    siteId: string,
+    signature: Express.Multer.File | undefined,
+    dto: CreateGclFromProjectDto,
+  ) {
+    const saved = await this.storeSignature(signature);
+    return this.builder.createFromProject(siteId, dto, saved);
+  }
+
   /** Scope sheet -> package(s) -> GCL PDF. The signature image is optional here
    *  and can be attached later from the package screen. */
   async createFromScope(
@@ -25,18 +51,7 @@ export class GclService {
     signature: Express.Multer.File | undefined,
     dto: CreateGclDto,
   ) {
-    let saved: { fileName: string; filePath: string } | undefined;
-
-    if (signature) {
-      if (!/\.(png|jpe?g)$/i.test(signature.originalname)) {
-        throw new BadRequestException('The signature must be a PNG or JPEG image.');
-      }
-      const stored = await this.storage.saveUpload(
-        signature.buffer,
-        `sig-${signature.originalname}`,
-      );
-      saved = { fileName: signature.originalname, filePath: stored.filePath };
-    }
+    const saved = await this.storeSignature(signature);
 
     return this.builder.createFromScope(scope.buffer, dto, saved);
   }

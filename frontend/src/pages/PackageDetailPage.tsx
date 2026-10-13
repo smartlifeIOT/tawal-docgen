@@ -138,6 +138,14 @@ export default function PackageDetailPage() {
   if (error && !pkg) return <Alert kind="error">{error}</Alert>;
   if (!pkg) return <Spinner label="Loading package…" />;
 
+  // Driven off DOCS rather than pkg.documents so the rows keep their intended
+  // order (GCL, BOQ, Work Order, PAC) instead of whatever order they were
+  // generated in.
+  const generated = DOCS.flatMap(({ type, label, icon }) => {
+    const doc = pkg.documents?.find((d) => d.type === type);
+    return doc ? [{ type, label, icon, doc }] : [];
+  });
+
   return (
     <div className="space-y-6">
       {/* header */}
@@ -362,8 +370,16 @@ export default function PackageDetailPage() {
       <div className="surface">
         <div className="surface-head"><h2 className="text-sm font-semibold text-fg">Documents</h2></div>
         <div className="divide-y divide-line/60">
-          {DOCS.map(({ type, label, icon: Icon }) => {
-            const doc = pkg.documents?.find((d) => d.type === type);
+          {/* Only what has actually been produced. Creating a GCL produces the
+              GCL and nothing else, so listing the BOQ, Work Order and PAC as
+              "Not generated yet" at that point is noise — they appear here once
+              "Generate documents" below has run. */}
+          {generated.length === 0 && (
+            <div className="px-5 py-6 text-center text-sm text-fg-muted">
+              Nothing generated yet — use “Generate documents” below.
+            </div>
+          )}
+          {generated.map(({ type, label, icon: Icon, doc }) => {
             return (
               <div key={type} className="flex items-center justify-between px-5 py-3">
                 <div className="flex items-center gap-3">
@@ -371,7 +387,7 @@ export default function PackageDetailPage() {
                   <div>
                     <div className="text-sm font-medium text-fg">{label}</div>
                     <div className="text-[11px] text-fg-subtle">
-                      {doc ? `${doc.fileName} · ${(doc.sizeBytes / 1024).toFixed(0)} KB · ${shortDate(doc.createdAt)}` : 'Not generated yet'}
+                      {`${doc.fileName} · ${(doc.sizeBytes / 1024).toFixed(0)} KB · ${shortDate(doc.createdAt)}`}
                     </div>
                   </div>
                 </div>
@@ -387,15 +403,13 @@ export default function PackageDetailPage() {
                   >
                     Live preview
                   </Button>
-                  {doc && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => api.download(`/documents/${doc.id}/download`, doc.fileName)}
-                    >
-                      <Download size={13} /> Download
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => api.download(`/documents/${doc.id}/download`, doc.fileName)}
+                  >
+                    <Download size={13} /> Download
+                  </Button>
                 </div>
               </div>
             );
