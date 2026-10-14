@@ -23,7 +23,15 @@ export default function CreateGclPage() {
   const externalSiteId = params.get('project');
   const nav = useNavigate();
 
-  const [preview, setPreview] = useState<(ScopePreview & { sourceFileName?: string }) | null>(null);
+  /** The preview carries the project's own region and city alongside the scope. */
+  type ProjectPreview = ScopePreview & {
+    sourceFileName?: string;
+    region?: string | null;
+    district?: string | null;
+    projectTitle?: string | null;
+  };
+
+  const [preview, setPreview] = useState<ProjectPreview | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [signature, setSignature] = useState<File | null>(null);
   const [busy, setBusy] = useState<'load' | 'create' | null>('load');
@@ -47,13 +55,19 @@ export default function CreateGclPage() {
     if (!externalSiteId) return;
     setBusy('load');
     api
-      .get<ScopePreview & { sourceFileName?: string }>(
-        `/gcl/from-project/${encodeURIComponent(externalSiteId)}/preview`,
-      )
+      .get<ProjectPreview>(`/gcl/from-project/${encodeURIComponent(externalSiteId)}/preview`)
       .then((r) => {
         setPreview(r);
         setSelected(r.sites.map(siteKey));
-        if (r.suggestedFieldKey) set('quantityFieldKey', r.suggestedFieldKey);
+        // Region and district come from the tracker project, so they arrive
+        // filled in rather than being retyped for every GCL. Still editable —
+        // and still overridable, since what is typed here wins server-side.
+        setForm((f) => ({
+          ...f,
+          quantityFieldKey: r.suggestedFieldKey || f.quantityFieldKey,
+          region: r.region ?? f.region,
+          district: r.district ?? f.district,
+        }));
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setBusy(null));
@@ -208,8 +222,18 @@ export default function CreateGclPage() {
               icon={<PenLine size={15} />}
             />
             <div className="grid gap-4 px-4 py-5 sm:grid-cols-2 sm:px-5 lg:grid-cols-4">
-              <Field label="Region"><Input value={form.region} onChange={(e) => set('region', e.target.value)} /></Field>
-              <Field label="District"><Input value={form.district} onChange={(e) => set('district', e.target.value)} /></Field>
+              <Field
+                label="Region"
+                hint={preview?.region ? 'From the tracker project' : undefined}
+              >
+                <Input value={form.region} onChange={(e) => set('region', e.target.value)} />
+              </Field>
+              <Field
+                label="District"
+                hint={preview?.district ? 'From the tracker project' : undefined}
+              >
+                <Input value={form.district} onChange={(e) => set('district', e.target.value)} />
+              </Field>
               <Field label="Contractor PM"><Input value={form.contractorPmName} onChange={(e) => set('contractorPmName', e.target.value)} /></Field>
               <Field label="MSP representative"><Input value={form.mspRepName} onChange={(e) => set('mspRepName', e.target.value)} /></Field>
               <Field label="Remarks" className="sm:col-span-2 lg:col-span-4">

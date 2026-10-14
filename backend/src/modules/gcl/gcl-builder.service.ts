@@ -4,7 +4,10 @@ import { DocumentType, PackageOrigin, PackageStatus, Prisma, QuantitySource } fr
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { UplService } from '../upl/upl.service';
-import { ExternalProjectsService } from '../external-projects/external-projects.service';
+import {
+  ExternalProject,
+  ExternalProjectsService,
+} from '../external-projects/external-projects.service';
 import { SiteTagsService } from '../site-tags/site-tags.service';
 import { PackagesService } from '../packages/packages.service';
 import { parseScopeWorkbook, ScopeSite } from './scope.parser';
@@ -92,7 +95,21 @@ export class GclBuilderService {
   async previewFromProject(siteId: string) {
     const { fileName, buffer } = await this.externalProjects.fetchScopeFile(siteId);
     const preview = await this.previewScope(buffer);
-    return { ...preview, sourceFileName: fileName, siteId };
+
+    // Region and city come from the tracker so the form arrives filled in.
+    // Sent separately from the parsed sheet because they describe the project,
+    // not the scope, and the create call applies the same values server-side
+    // even if the fields are cleared.
+    const tracked = await this.externalProjects.findBySiteId(siteId);
+
+    return {
+      ...preview,
+      sourceFileName: fileName,
+      siteId,
+      region: tracked?.region ?? null,
+      district: tracked?.city ?? null,
+      projectTitle: tracked?.title ?? null,
+    };
   }
 
   /** Creates the GCL from that same workbook. */
@@ -168,13 +185,9 @@ export class GclBuilderService {
     overrides: Map<string, ScopeSiteInputDto>,
     signature?: { fileName: string; filePath: string },
     parsedColumns: { key: string; label: string }[] = [],
-    tracked?: {
-      id: string;
-      siteId: string;
-      title: string;
-      category: string | null;
-      woNumber?: string | null;
-    } | null,
+    // The whole tracker record rather than a hand-listed subset, so reaching
+    // for another of its fields does not mean widening this signature again.
+    tracked?: ExternalProject | null,
   ) {
     const defaults = this.config.get('defaults');
     const key = site.siteCode ?? site.tawalSiteId ?? '';
@@ -291,8 +304,11 @@ export class GclBuilderService {
         siteName: site.siteName,
         budget: site.budget,
         subProjectName: site.subProjectName,
-        region: o?.region ?? dto.region ?? null,
-        district: o?.district ?? dto.district ?? null,
+        // The tracker already knows where the site is, so these need not be
+        // typed again. A per-site override wins, then whatever the form sent,
+        // then the project's own region and city.
+        region: o?.region ?? dto.region ?? tracked?.region ?? null,
+        district: o?.district ?? dto.district ?? tracked?.city ?? null,
         projectName: (site.budget || defaults.projectName).toUpperCase(),
         contractorName: dto.contractorName ?? site.contractor ?? defaults.contractorName,
         poNumber: site.poNumber,
