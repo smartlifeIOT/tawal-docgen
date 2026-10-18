@@ -337,7 +337,12 @@ export class DocumentsService {
             woNumber: p.woNumber,
             siteNo: p.siteNo,
             itemCode: l.itemCode,
-            description: l.description,
+            // Composed the same way as the single-package GCL. No batch
+            // template renders a description today, so this changes nothing
+            // on the current forms — it is here so that adding a description
+            // column later carries the serial instead of silently dropping it,
+            // which is the bug this mirrors.
+            description: withSerial(l.description, l.serialNumber),
             unit: l.unit ?? '',
             quantity: Number(l.quantity),
             unitPrice: Number(l.unitPrice),
