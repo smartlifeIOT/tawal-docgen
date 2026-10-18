@@ -16,6 +16,9 @@ model UplItem {
   itemCode     String
   description  String   @db.Text
   categoryName String?
+  /// "Tangible" or "Service" — the UPL classifies each item, and the GCL's
+  /// "Tangible Or Service item" column prints it.
+  itemType     String?
   uom          String?
   price        Decimal  @db.Decimal(14, 4)
   currency     String   @default("SAR")
@@ -366,8 +369,11 @@ model MopDocument {
   /// The tracker project this MOP was raised for. Stored as a snapshot rather
   /// than a relation: the tracker owns projects, and a MOP must still read
   /// correctly if one is renamed or withdrawn upstream.
-  externalProjectId    String?
-  externalSiteId       String
+  externalProjectId String?
+  /// Optional: a MOP can be raised without a tracker project — a survey before
+  /// the project exists, or an ad-hoc request. Then this holds the site or
+  /// project name typed by hand, and the category is chosen directly.
+  externalSiteId       String?
   externalProjectTitle String?
   externalCategory     String?
 

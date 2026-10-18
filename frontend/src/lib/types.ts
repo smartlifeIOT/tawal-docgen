@@ -167,6 +167,8 @@ export interface UplItem {
   itemCode: string;
   description: string;
   categoryName: string | null;
+  /** "Tangible" or "Service" — printed on the GCL. */
+  itemType: string | null;
   uom: string | null;
   price: string;
   currency: string;
