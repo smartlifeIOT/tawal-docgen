@@ -262,7 +262,10 @@ export class GclBuilderService {
         itemCode: l.itemCode,
         description: upl?.description?.trim() || l.description,
         unit: l.unit ?? upl?.uom ?? null,
-        itemType: l.itemType,
+        // Tangible vs Service is a property of the item, so the UPL is the
+        // authority. The scope sheet's work-type guess is only a fallback for
+        // a code the UPL does not classify.
+        itemType: upl?.itemType ?? l.itemType,
         workType: l.workType,
         designQty,
         asBuiltQty,

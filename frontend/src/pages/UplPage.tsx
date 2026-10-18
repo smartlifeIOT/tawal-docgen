@@ -133,6 +133,7 @@ export default function UplPage() {
                 <th className="th w-16">Line</th>
                 <th className="th w-40">Item Code</th>
                 <th className="th">Description</th>
+                <th className="th w-28">Type</th>
                 <th className="th w-20">UOM</th>
                 <th className="th w-32 text-right">Price</th>
               </tr>
@@ -143,6 +144,13 @@ export default function UplPage() {
                   <td className="td text-fg-subtle">{i.line ?? '—'}</td>
                   <td className="td font-mono text-xs font-semibold text-orchid-brand dark:text-orchid-brand">{i.itemCode}</td>
                   <td className="td max-w-xl truncate text-fg-muted" title={i.description}>{i.description}</td>
+                  <td className="td">
+                    {/* Blank means the UPL did not classify this code, and the
+                        GCL's Tangible/Service cell will be empty for it. */}
+                    {i.itemType
+                      ? <Badge tone={i.itemType === 'Service' ? 'cyan' : 'neutral'}>{i.itemType}</Badge>
+                      : <span className="text-xs text-fg-subtle">—</span>}
+                  </td>
                   <td className="td text-xs">{i.uom ?? '—'}</td>
                   <td className="td text-right font-semibold">{money(i.price, i.currency)}</td>
                 </tr>

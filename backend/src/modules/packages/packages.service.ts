@@ -260,6 +260,9 @@ export class PackagesService {
         // Prefer the fuller UPL wording; fall back to whatever the GCL carried.
         description: upl?.description?.trim() || l.description,
         unit: l.unit ?? upl?.uom ?? null,
+        // The UPL classifies each item code as Tangible or Service; what was
+        // read off the uploaded GCL is only a fallback.
+        itemType: upl?.itemType ?? l.itemType,
         unitPrice,
         quantity,
         lineTotal: unitPrice.mul(quantity),
@@ -304,7 +307,16 @@ export class PackagesService {
       updates.push(
         this.prisma.packageLine.update({
           where: { id: line.id },
-          data: { unitPrice, quantity, lineTotal, priceFound: !!upl },
+          data: {
+            unitPrice,
+            quantity,
+            lineTotal,
+            priceFound: !!upl,
+            // Re-pricing also refreshes the Tangible/Service classification, so
+            // a package created before its codes were classified picks it up
+            // without being rebuilt.
+            itemType: upl?.itemType ?? line.itemType,
+          },
         }),
       );
     }

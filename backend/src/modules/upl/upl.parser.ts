@@ -5,6 +5,7 @@ export interface UplRow {
   itemCode: string;
   description: string;
   categoryName: string | null;
+  itemType: string | null;
   uom: string | null;
   price: number;
 }
@@ -15,9 +16,35 @@ const COLUMN_ALIASES: Record<keyof UplRow, string[]> = {
   itemCode: ['item', 'item code', 'itemcode', 'code', 'material code'],
   description: ['description', 'desc', 'item description', 'scope'],
   categoryName: ['category name', 'category', 'categoryname', 'wbs'],
+  itemType: [
+    'tangible or service item',
+    'tangible or service',
+    'tangible/service',
+    'tangible or service item?',
+    'item type',
+    'type',
+    'tangible',
+  ],
   uom: ['uom', 'unit', 'unit of measure', 'u.o.m'],
   price: ['price', 'unit price', 'rate', 'unit rate', 'amount'],
 };
+
+/**
+ * Settles on the two words the GCL prints.
+ *
+ * The UPL is maintained by hand, so this column arrives as "Tangible",
+ * "tangible", "Service item", "S" and so on. Anything unrecognised is kept
+ * verbatim rather than dropped — a wrong-looking value on the form is easier
+ * to spot and correct than a silently empty cell.
+ */
+export function normaliseItemType(value: string | null | undefined): string | null {
+  const t = String(value ?? '').trim();
+  if (!t) return null;
+  const lower = t.toLowerCase();
+  if (lower.startsWith('t')) return 'Tangible';
+  if (lower.startsWith('s')) return 'Service';
+  return t;
+}
 
 const norm = (v: unknown) =>
   String(v ?? '')
@@ -113,6 +140,7 @@ export async function parseUplWorkbook(source: string | Buffer): Promise<UplRow[
       itemCode,
       description: cellText(row.getCell(map.description ?? 0)).trim(),
       categoryName: map.categoryName ? cellText(row.getCell(map.categoryName)).trim() || null : null,
+      itemType: map.itemType ? normaliseItemType(cellText(row.getCell(map.itemType))) : null,
       uom: map.uom ? cellText(row.getCell(map.uom)).trim() || null : null,
       price: Math.round(price * 10000) / 10000,
     });

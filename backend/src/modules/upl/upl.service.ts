@@ -7,19 +7,20 @@ import {
 } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Prisma } from '@prisma/client';
+import { Prisma, UplItem } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseUplWorkbook } from './upl.parser';
 import { QueryUplDto, UpsertUplItemDto } from './upl.dto';
 
 /** The subset of a UPL row the pricing engine actually consumes. */
-export interface UplPrice {
-  itemCode: string;
-  description: string;
-  uom: string | null;
-  price: Prisma.Decimal | number | string;
-  currency: string;
-}
+/**
+ * What priceMap hands back: the stored UPL row.
+ *
+ * Deliberately the whole record rather than a hand-listed subset — the subset
+ * is why callers could not reach `itemType` without this type being widened
+ * first, and the next column would have cost the same edit.
+ */
+export type UplPrice = UplItem;
 
 @Injectable()
 export class UplService implements OnModuleInit {

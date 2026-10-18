@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
@@ -9,6 +9,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { normaliseItemType } from './upl.parser';
 
 export class QueryUplDto {
   @IsOptional() @IsString() version?: string;
@@ -23,6 +24,9 @@ export class UpsertUplItemDto {
   @IsString() @MinLength(3) itemCode!: string;
   @IsString() description!: string;
   @IsOptional() @IsString() categoryName?: string;
+  /** "Tangible" or "Service" — printed on the GCL. Normalised on the way in. */
+  @IsOptional() @IsString() @Transform(({ value }) => normaliseItemType(value))
+  itemType?: string;
   @IsOptional() @IsString() uom?: string;
   @Type(() => Number) @IsNumber() @Min(0) price!: number;
   @IsOptional() @IsString() currency?: string;
