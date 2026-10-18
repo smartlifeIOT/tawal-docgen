@@ -16,13 +16,19 @@ const COLUMN_ALIASES: Record<keyof UplRow, string[]> = {
   itemCode: ['item', 'item code', 'itemcode', 'code', 'material code'],
   description: ['description', 'desc', 'item description', 'scope'],
   categoryName: ['category name', 'category', 'categoryname', 'wbs'],
+  // Both orderings: the UPL says "Item Type", the GCL form says "Tangible Or
+  // Service item", and people write it either way round.
   itemType: [
+    'item type',
+    'itemtype',
+    'type',
     'tangible or service item',
     'tangible or service',
     'tangible/service',
     'tangible or service item?',
-    'item type',
-    'type',
+    'service or tangible item',
+    'service or tangible',
+    'service/tangible',
     'tangible',
   ],
   uom: ['uom', 'unit', 'unit of measure', 'u.o.m'],

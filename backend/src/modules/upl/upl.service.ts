@@ -139,8 +139,29 @@ export class UplService implements OnModuleInit {
     );
 
     const created = rows.filter((r) => !known.has(r.itemCode)).length;
-    this.logger.log(`UPL ${version}: ${created} created, ${rows.length - created} updated`);
+    const typed = rows.filter((r) => r.itemType).length;
+    this.logger.log(
+      `UPL ${version}: ${created} created, ${rows.length - created} updated, ${typed} classified`,
+    );
 
-    return { version, parsed: rows.length, created, updated: rows.length - created };
+    /*
+     * An unmatched column used to import silently as all-null, which then
+     * showed up as an empty "Tangible Or Service item" column on the GCL with
+     * nothing to explain it. Say so here instead.
+     */
+    const warnings: string[] = [];
+    if (!typed) {
+      warnings.push(
+        'No Tangible/Service values were read — the workbook has no "Item Type" column ' +
+          '(or it is empty), so that column will be blank on the GCL.',
+      );
+    } else if (typed < rows.length) {
+      warnings.push(
+        `${rows.length - typed} of ${rows.length} items have no Tangible/Service value; ` +
+          'those will be blank on the GCL.',
+      );
+    }
+
+    return { version, parsed: rows.length, created, updated: rows.length - created, typed, warnings };
   }
 }

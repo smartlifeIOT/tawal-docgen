@@ -45,10 +45,19 @@ export default function UplPage() {
     setError(null);
     setNotice(null);
     try {
-      const r = await api.upload<{ parsed: number; created: number; updated: number }>(
-        '/upl/import', f, { version },
+      const r = await api.upload<{
+        parsed: number; created: number; updated: number;
+        typed?: number; warnings?: string[];
+      }>('/upl/import', f, { version });
+
+      // The Tangible/Service count is called out because it feeds the GCL, and
+      // a missing column is otherwise invisible until the form prints blank.
+      setNotice(
+        `${r.parsed} rows read — ${r.created} added, ${r.updated} updated in "${version}"` +
+          (r.typed != null ? `, ${r.typed} classified Tangible/Service` : '') +
+          '.' +
+          (r.warnings?.length ? ` ${r.warnings.join(' ')}` : ''),
       );
-      setNotice(`${r.parsed} rows read — ${r.created} added, ${r.updated} updated in "${version}".`);
       await reload();
     } catch (e) {
       setError((e as Error).message);
