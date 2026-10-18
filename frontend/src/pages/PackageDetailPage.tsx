@@ -57,10 +57,16 @@ export default function PackageDetailPage() {
     setDirty(true);
   };
 
-  async function save() {
-    if (!pkg) return;
-    setBusy('save');
-    setError(null);
+  /**
+   * Writes the grid back and re-prices. Returns true when it went through, so
+   * generating can refuse to run on stale data.
+   *
+   * Separate from save() because "Generate documents" has to persist pending
+   * edits first: the server builds from what is stored, so a serial typed but
+   * not saved would silently be left off the GCL.
+   */
+  async function persistChanges(): Promise<boolean> {
+    if (!pkg) return false;
     try {
       const body = {
         quantitySource: pkg.quantitySource,
@@ -97,9 +103,19 @@ export default function PackageDetailPage() {
       };
       setPkg(await api.send<Package>(`/packages/${id}`, 'PATCH', body));
       setDirty(false);
-      setNotice('Saved and re-priced.');
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
+    }
+  }
+
+  async function save() {
+    if (!pkg) return;
+    setBusy('save');
+    setError(null);
+    try {
+      if (await persistChanges()) setNotice('Saved and re-priced.');
     } finally {
       setBusy(null);
     }
@@ -125,6 +141,11 @@ export default function PackageDetailPage() {
     setBusy('generate');
     setError(null);
     try {
+      // Documents are built from what is stored, so anything typed into the
+      // grid has to be written back first — otherwise a serial or tag entered
+      // just now is quietly missing from the GCL.
+      if (dirty && !(await persistChanges())) return;
+
       const res = await api.send<{ warnings: string[] }>(`/packages/${id}/documents/generate`, 'POST', {});
       await load();
       setNotice(res.warnings.length ? res.warnings.join(' ') : 'All five documents generated.');
@@ -431,9 +452,13 @@ export default function PackageDetailPage() {
       */}
       <div className="sticky bottom-0 -mx-4 mt-2 border-t border-line/60 bg-canvas/85 px-4 py-3 backdrop-blur-md sm:-mx-5 sm:px-5 lg:-mx-8 lg:px-8">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="hidden min-w-0 flex-1 truncate text-xs text-fg-subtle sm:block">
+          <span
+            className={`min-w-0 flex-1 truncate text-xs ${
+              dirty ? 'text-amber-600 dark:text-amber-400' : 'hidden text-fg-subtle sm:block'
+            }`}
+          >
             {dirty
-              ? 'Unsaved changes — save and re-price before generating.'
+              ? 'Unsaved changes — they are saved automatically before generating.'
               : `${pkg.lines.length} line${pkg.lines.length === 1 ? '' : 's'} · ${money(pkg.netAmount, pkg.currency)} net`}
           </span>
 
