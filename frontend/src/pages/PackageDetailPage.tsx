@@ -115,7 +115,14 @@ export default function PackageDetailPage() {
     setBusy('save');
     setError(null);
     try {
-      if (await persistChanges()) setNotice('Saved and re-priced.');
+      const had = dirty;
+      if (await persistChanges()) {
+        setNotice(
+          had
+            ? 'Saved and re-priced.'
+            : 'Re-priced against the current UPL — regenerate to apply it to the documents.',
+        );
+      }
     } finally {
       setBusy(null);
     }
@@ -144,7 +151,18 @@ export default function PackageDetailPage() {
       // Documents are built from what is stored, so anything typed into the
       // grid has to be written back first — otherwise a serial or tag entered
       // just now is quietly missing from the GCL.
-      if (dirty && !(await persistChanges())) return;
+      if (dirty) {
+        if (!(await persistChanges())) return; // saving also re-prices
+      } else {
+        /*
+         * Re-price even with nothing to save. Prices and the Tangible/Service
+         * classification live in the UPL, and a package created before the UPL
+         * was updated keeps whatever it was built with — there was otherwise no
+         * way to refresh it, because "Save & re-price" is disabled when there
+         * is nothing to save. Re-pricing is idempotent.
+         */
+        await api.send(`/packages/${id}/reprice`, 'POST', {});
+      }
 
       const res = await api.send<{ warnings: string[] }>(`/packages/${id}/documents/generate`, 'POST', {});
       await load();
@@ -463,14 +481,18 @@ export default function PackageDetailPage() {
           </span>
 
           <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            {/* Enabled with nothing to save too: re-pricing pulls fresh prices
+                and the Tangible/Service classification from the UPL, which is
+                the only way to refresh a package built before the UPL changed. */}
             {canEdit && (
             <Button
               variant="outline"
               className="flex-1 sm:flex-none"
               onClick={save}
-              disabled={busy !== null || !dirty}
+              disabled={busy !== null}
+              title={dirty ? 'Save your edits and re-price' : 'Re-price against the current UPL'}
             >
-              <Save size={15} /> Save &amp; re-price
+              <Save size={15} /> {dirty ? 'Save & re-price' : 'Re-price'}
             </Button>
             )}
             {canEdit && (

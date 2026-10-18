@@ -27,6 +27,8 @@ export class PackagesController {
     return this.packages.update(id, dto);
   }
 
+  /** Refreshes prices and the Tangible/Service classification from the UPL. */
+  @RequirePermission('gcl', 'edit')
   @Post(':id/reprice')
   reprice(@Param('id') id: string) {
     return this.packages.reprice(id);
