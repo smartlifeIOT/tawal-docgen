@@ -75,9 +75,16 @@ export class PmsAuthGuard implements CanActivate {
     const role = String(claims?.role ?? '').trim();
     const isAdmin = /^admin$/i.test(role);
 
-    const permissions: PermissionMap = isAdmin
+    /*
+     * Only what the token actually carries overwrites the stored map. A token
+     * without a permissions claim used to fall through to the PM defaults and
+     * write them over whatever an admin had set, on every single request — so
+     * granting a permission looked like it had no effect. Absent means "no
+     * opinion", not "reset to defaults".
+     */
+    const claimed: PermissionMap | undefined = isAdmin
       ? ALL_PERMISSIONS
-      : (claims?.permissions ?? DEFAULT_PM_PERMISSIONS);
+      : (claims?.permissions as PermissionMap | undefined);
 
     const existing = await this.prisma.user.findUnique({ where: { email } });
 
@@ -87,7 +94,7 @@ export class PmsAuthGuard implements CanActivate {
           data: {
             name: claims?.name ?? existing.name,
             role: isAdmin ? 'ADMIN' : 'PM',
-            permissions: permissions as any,
+            ...(claimed !== undefined ? { permissions: claimed as any } : {}),
             isActive: true,
           },
         })
@@ -99,7 +106,9 @@ export class PmsAuthGuard implements CanActivate {
             // directly, so it gets no usable hash.
             passwordHash: 'pms-managed',
             role: isAdmin ? 'ADMIN' : 'PM',
-            permissions: permissions as any,
+            // A brand-new mirrored account still needs a starting set, so that
+            // a first-time PMS user can work without a separate setup step.
+            permissions: (claimed ?? DEFAULT_PM_PERMISSIONS) as any,
             isActive: true,
             mustChangePassword: false,
           },

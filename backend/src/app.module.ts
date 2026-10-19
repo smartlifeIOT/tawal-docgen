@@ -46,14 +46,20 @@ import { SiteTagsModule } from './modules/site-tags/site-tags.module';
   providers: [
     // Authentication is on for the whole platform. Routes opt out with @Public().
     /*
-     * DocGen runs as a PMS module, so PMS signs the tokens and there is no
-     * second login. Set AUTH_MODE=standalone to fall back to DocGen's own
-     * accounts — useful for running it on its own.
+     * DocGen signs its own tokens and owns its own accounts, so this defaults
+     * to standalone. Set AUTH_MODE=pms only when it genuinely runs behind PMS,
+     * where PMS signs the tokens and is the system of record for permissions.
+     *
+     * This used to default to "pms". AUTH_MODE is set nowhere, so a standalone
+     * deployment silently ran PmsAuthGuard, whose mirror() rewrote the user's
+     * role and permissions from the token on every request — and DocGen's own
+     * tokens carry no permissions claim, so each request reset the user back to
+     * DEFAULT_PM_PERMISSIONS. Granting a permission appeared to do nothing.
      */
     {
       provide: APP_GUARD,
       useClass:
-        (process.env.AUTH_MODE ?? 'pms') === 'standalone' ? JwtAuthGuard : PmsAuthGuard,
+        (process.env.AUTH_MODE ?? 'standalone') === 'pms' ? PmsAuthGuard : JwtAuthGuard,
     },
     // Runs after authentication; routes opt in with @RequirePermission().
     { provide: APP_GUARD, useClass: PermissionsGuard },
