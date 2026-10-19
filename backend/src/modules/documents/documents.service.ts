@@ -197,23 +197,43 @@ export class DocumentsService {
 
   /* ----------------------------------------------------------- generation */
 
+  /** "ZNJ526 GCL" — the document's label after the site that identifies it. */
+  private static readonly TYPE_LABELS: Record<DocumentType, string> = {
+    GCL_PDF: 'GCL',
+    BOQ_XLSX: 'As-Built BOQ',
+    BOQ_PDF: 'As-Built BOQ',
+    WO_XLSX: 'WO',
+    WO_PDF: 'WO',
+    PAC_PDF: 'PAC',
+    FAC_PDF: 'FAC',
+    PAC_XLSX: 'PAC',
+    FAC_XLSX: 'FAC',
+    BUNDLE_ZIP: 'Package',
+  };
+
+  private static readonly TYPE_EXT: Record<DocumentType, string> = {
+    GCL_PDF: 'pdf',
+    BOQ_XLSX: 'xlsx',
+    BOQ_PDF: 'pdf',
+    WO_XLSX: 'xlsx',
+    WO_PDF: 'pdf',
+    PAC_PDF: 'pdf',
+    FAC_PDF: 'pdf',
+    PAC_XLSX: 'xlsx',
+    FAC_XLSX: 'xlsx',
+    BUNDLE_ZIP: 'zip',
+  };
+
   private fileName(pkg: PackageWithLines, type: DocumentType) {
-    // [Site]_[Type], e.g. ZMS009_WO.pdf. The Work Order number is long enough
-    // to make a filename unreadable, and the site already identifies the job.
+    // "[Site] [Type]", e.g. "ZNJ526 GCL.pdf". The Work Order number is long
+    // enough to make a filename unreadable, and the site already identifies the
+    // job. The site is still stripped of anything awkward in a filename; the
+    // separator is a literal space, which every target handles — the download
+    // header quotes and percent-encodes it, and nothing shells out with the
+    // path (the external tools are all called through execFile with an argv
+    // array, so no quoting is involved).
     const base = fileSafe(pkg.siteNo) || fileSafe(pkg.woNumber) || 'document';
-    const map: Record<DocumentType, string> = {
-      GCL_PDF: `${base}_GCL.pdf`,
-      BOQ_XLSX: `${base}_AsBuilt_BOQ.xlsx`,
-      BOQ_PDF: `${base}_AsBuilt_BOQ.pdf`,
-      WO_XLSX: `${base}_WO.xlsx`,
-      WO_PDF: `${base}_WO.pdf`,
-      PAC_PDF: `${base}_PAC.pdf`,
-      FAC_PDF: `${base}_FAC.pdf`,
-      PAC_XLSX: `${base}_PAC.xlsx`,
-      FAC_XLSX: `${base}_FAC.xlsx`,
-      BUNDLE_ZIP: `${base}_Package.zip`,
-    };
-    return map[type];
+    return `${base} ${DocumentsService.TYPE_LABELS[type]}.${DocumentsService.TYPE_EXT[type]}`;
   }
 
   private async buildOne(pkg: PackageWithLines, type: DocumentType): Promise<Buffer> {
@@ -490,10 +510,9 @@ export class DocumentsService {
 
     const data = await this.buildBatchOne({ ...batch, packages } as BatchWithPackages, type);
 
-    const ext = type.endsWith('XLSX') ? 'xlsx' : 'pdf';
-    const label = type === DocumentType.BOQ_XLSX || type === DocumentType.BOQ_PDF
-      ? 'AsBuilt_BOQ'
-      : type.replace(/_(PDF|XLSX)$/, '');
+    // Same labels as a standalone document, so a batch file reads the same way.
+    const ext = DocumentsService.TYPE_EXT[type];
+    const label = DocumentsService.TYPE_LABELS[type];
 
     /*
      * A single-site batch is named exactly like a standalone document; only a
@@ -504,8 +523,8 @@ export class DocumentsService {
     const base = fileSafe(first.siteNo) || fileSafe(first.woNumber) || 'document';
     const fileName =
       packages.length === 1
-        ? `${base}_${label}.${ext}`
-        : `${base}_and-${packages.length - 1}-more_${label}.${ext}`;
+        ? `${base} ${label}.${ext}`
+        : `${base} and ${packages.length - 1} more ${label}.${ext}`;
 
     const saved = await this.storage.saveDocument(`batches/${batch.id}`, fileName, data);
 
